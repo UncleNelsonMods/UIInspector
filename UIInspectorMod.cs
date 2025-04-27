@@ -24,15 +24,41 @@ namespace UIInspectorMod
         {
             LoadConfig();
             MelonLogger.Msg($"UI Inspector Mod Initialized");
-            MelonLogger.Msg("Press H key to inspect UI elements");
+            MelonLogger.Msg("Press SHIFT+H key to inspect UI elements");
+            MelonLogger.Msg("Press SHIFT+J key to search for player and important game objects");
+            MelonLogger.Msg("Press SHIFT+P key to attempt modifying player data");
+        }
+        
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            MelonLogger.Msg($"Scene loaded: {sceneName} (Index: {buildIndex})");
+            
+            // Notify the game object inspector about the scene change
+            GameObjectInspector.Instance.OnSceneLoaded(sceneName);
         }
 
         public override void OnUpdate()
         {
-            // Check for the H key to trigger UI inspection
-            if (Input.GetKeyDown(KeyCode.H))
+            bool isShiftPressed = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            
+            // Check for SHIFT+H to trigger UI inspection
+            if (isShiftPressed && Input.GetKeyDown(KeyCode.H))
             {
                 InspectUI();
+            }
+            
+            // Check for SHIFT+J to search for player and game objects
+            if (isShiftPressed && Input.GetKeyDown(KeyCode.J))
+            {
+                MelonLogger.Msg("SHIFT+J key pressed - searching for game objects");
+                GameObjectInspector.Instance.SearchForGameObjects();
+                GameObjectInspector.Instance.ToggleGameInfo();
+            }
+            
+            // Check for SHIFT+P to attempt modifying player data
+            if (isShiftPressed && Input.GetKeyDown(KeyCode.P))
+            {
+                GameObjectInspector.Instance.ModifyPlayerData();
             }
         }
         
@@ -40,6 +66,9 @@ namespace UIInspectorMod
         {
             // Call the inspector's OnGUI method
             UIInspectorWindow.Instance.OnGUI();
+            
+            // Call the game object inspector's OnGUI method
+            GameObjectInspector.Instance.OnGUI();
         }
 
         private void InspectUI()
