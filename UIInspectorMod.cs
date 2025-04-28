@@ -18,15 +18,15 @@ namespace UIInspectorMod
     {
         private ModConfig config;
         private static StringBuilder outputBuffer = new StringBuilder();
-        private static Dictionary<string, List<GameObject>> inspectedElements = new Dictionary<string, List<GameObject>>();
         
         public override void OnInitializeMelon()
         {
             LoadConfig();
             MelonLogger.Msg($"UI Inspector Mod Initialized");
-            MelonLogger.Msg("Press SHIFT+H key to inspect UI elements");
+            MelonLogger.Msg("Press SHIFT+H key to toggle UI Inspector");
             MelonLogger.Msg("Press SHIFT+J key to search for player and important game objects");
             MelonLogger.Msg("Press SHIFT+P key to attempt modifying player data");
+            MelonLogger.Msg("Press SHIFT+M key to open game data modifier");
         }
         
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -35,16 +35,19 @@ namespace UIInspectorMod
             
             // Notify the game object inspector about the scene change
             GameObjectInspector.Instance.OnSceneLoaded(sceneName);
+            
+            // Notify the UI inspector window about the scene change
+            UIInspectorWindow.Instance.OnSceneLoaded(sceneName);
         }
 
         public override void OnUpdate()
         {
             bool isShiftPressed = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             
-            // Check for SHIFT+H to trigger UI inspection
+            // Check for SHIFT+H to toggle UI inspector
             if (isShiftPressed && Input.GetKeyDown(KeyCode.H))
             {
-                InspectUI();
+                ToggleUIInspector();
             }
             
             // Check for SHIFT+J to search for player and game objects
@@ -60,6 +63,13 @@ namespace UIInspectorMod
             {
                 GameObjectInspector.Instance.ModifyPlayerData();
             }
+            
+            // Check for SHIFT+M to open game data modifier
+            if (isShiftPressed && Input.GetKeyDown(KeyCode.M))
+            {
+                MelonLogger.Msg("SHIFT+M key pressed - opening game data modifier");
+                GameDataModifier.Instance.ToggleModifierUI();
+            }
         }
         
         public override void OnGUI()
@@ -69,175 +79,248 @@ namespace UIInspectorMod
             
             // Call the game object inspector's OnGUI method
             GameObjectInspector.Instance.OnGUI();
+            
+            // Call the game data modifier's OnGUI method
+            GameDataModifier.Instance.OnGUI();
         }
 
-        private void InspectUI()
+        private void ToggleUIInspector()
         {
-            MelonLogger.Msg("Taking UI snapshot...");
-            outputBuffer.Clear();
-            LogToBuffer("Taking UI snapshot...");
-            
-            // Find UI elements and populate the dictionary
-            inspectedElements.Clear();
-            FindUIElements();
-            SaveToTempFile();
-            
-            // Toggle UI visibility
-            UIInspectorWindow.Instance.ToggleVisibility();
-            UIInspectorWindow.Instance.SetInspectedElements(inspectedElements);
-            
-            if (UIInspectorWindow.Instance.IsVisible)
-                MelonLogger.Msg("UI Inspector window opened");
-            else
-                MelonLogger.Msg("UI Inspector window closed");
+            try
+            {
+                MelonLogger.Msg("Toggling UI Inspector...");
+                
+                // Toggle the UI Inspector window visibility
+                UIInspectorWindow.Instance.ToggleVisibility();
+                
+                if (UIInspectorWindow.Instance.WindowVisible)
+                {
+                    MelonLogger.Msg("UI Inspector window opened");
+                    LogActiveUI(); // Log UI info to console for reference
+                }
+                else
+                {
+                    MelonLogger.Msg("UI Inspector window closed");
+                }
+            }
+            catch (Exception ex)
+            {
+                // If the UI window is causing errors, fallback to just logging the UI structure
+                MelonLogger.Error($"Error with UI Inspector window: {ex.Message}");
+                MelonLogger.Msg("Falling back to console-only UI logging...");
+                LogActiveUI();
+            }
         }
         
-        private void FindUIElements()
+        private void LogActiveUI()
         {
-            // Find all Canvas objects
-            var canvases = GameObject.FindObjectsOfType<Canvas>();
-            
-            MelonLogger.Msg($"Found {canvases.Length} Canvas objects");
-            LogToBuffer($"Found {canvases.Length} Canvas objects");
-            
-            foreach (var canvas in canvases)
+            try
             {
-                if (canvas.gameObject.activeInHierarchy)
+                outputBuffer.Clear();
+                LogToBuffer("UI Structure Summary:");
+                
+                // Find all Canvas objects
+                var canvases = GameObject.FindObjectsOfType<Canvas>();
+                
+                MelonLogger.Msg($"Found {canvases.Length} Canvas objects");
+                LogToBuffer($"Found {canvases.Length} Canvas objects");
+                
+                foreach (var canvas in canvases)
                 {
-                    string canvasName = canvas.name;
-                    MelonLogger.Msg($"Active Canvas: {canvasName}");
-                    LogToBuffer($"Active Canvas: {canvasName}");
-                    
-                    // Store canvas and all its children in our dictionary
-                    List<GameObject> canvasElements = new List<GameObject>();
-                    canvasElements.Add(canvas.gameObject);
-                    
-                    // Add all children that are relevant
-                    Component[] allChildren = canvas.GetComponentsInChildren<Component>(true);
-                    foreach (var child in allChildren)
+                    if (canvas.gameObject.activeInHierarchy)
                     {
-                        if (child != null && child.gameObject != canvas.gameObject)
+                        string canvasName = canvas.name;
+                        MelonLogger.Msg($"Active Canvas: {canvasName}");
+                        LogToBuffer($"Active Canvas: {canvasName}");
+                        
+                        // Find all buttons in this canvas
+                        var buttons = canvas.GetComponentsInChildren<Button>(true);
+                        if (buttons.Length > 0)
                         {
-                            if (!canvasElements.Contains(child.gameObject))
+                            MelonLogger.Msg($"  Buttons ({buttons.Length}):");
+                            LogToBuffer($"  Buttons ({buttons.Length}):");
+                            
+                            foreach (var button in buttons)
                             {
-                                canvasElements.Add(child.gameObject);
+                                // Get button path within canvas
+                                string relativePath = GetRelativePath(button.transform, canvas.transform);
+                                MelonLogger.Msg($"  - {relativePath}");
+                                LogToBuffer($"  - {relativePath}");
+                                
+                                // Get button text
+                                var buttonText = button.GetComponentInChildren<Text>();
+                                if (buttonText != null && !string.IsNullOrEmpty(buttonText.text))
+                                {
+                                    MelonLogger.Msg($"      Text: \"{buttonText.text}\"");
+                                    LogToBuffer($"      Text: \"{buttonText.text}\"");
+                                }
+                                
+                                // Log components
+                                var components = button.GetComponents<Component>();
+                                List<string> componentNames = new List<string>();
+                                foreach (var component in components)
+                                {
+                                    if (component != null && 
+                                        !component.GetType().Name.StartsWith("Unity") &&
+                                        component.GetType().Name != "Button" &&
+                                        component.GetType().Name != "Image" &&
+                                        component.GetType().Name != "RectTransform")
+                                    {
+                                        componentNames.Add(component.GetType().Name);
+                                    }
+                                }
+                                
+                                if (componentNames.Count > 0)
+                                {
+                                    MelonLogger.Msg($"      Components: {string.Join(", ", componentNames)}");
+                                    LogToBuffer($"      Components: {string.Join(", ", componentNames)}");
+                                }
                             }
                         }
-                    }
-                    
-                    inspectedElements[canvasName] = canvasElements;
-                    
-                    // Find all buttons in this canvas
-                    var buttons = canvas.GetComponentsInChildren<Button>(true);
-                    if (buttons.Length > 0)
-                    {
-                        MelonLogger.Msg($"  Buttons ({buttons.Length}):");
-                        LogToBuffer($"  Buttons ({buttons.Length}):");
                         
-                        foreach (var button in buttons)
+                        // Find all text elements that might be interesting
+                        var texts = canvas.GetComponentsInChildren<Text>(true);
+                        if (texts.Length > 0)
                         {
-                            // Get button path within canvas
-                            string relativePath = GetRelativePath(button.transform, canvas.transform);
-                            MelonLogger.Msg($"  - {relativePath}");
-                            LogToBuffer($"  - {relativePath}");
-                            
-                            // Get button text
-                            var buttonText = button.GetComponentInChildren<Text>();
-                            if (buttonText != null && !string.IsNullOrEmpty(buttonText.text))
+                            // Filter texts to only show ones that might be important (non-empty)
+                            List<Text> importantTexts = new List<Text>();
+                            foreach (var text in texts)
                             {
-                                MelonLogger.Msg($"      Text: \"{buttonText.text}\"");
-                                LogToBuffer($"      Text: \"{buttonText.text}\"");
-                            }
-                            
-                            // Log components
-                            var components = button.GetComponents<Component>();
-                            List<string> componentNames = new List<string>();
-                            foreach (var component in components)
-                            {
-                                if (component != null && 
-                                    !component.GetType().Name.StartsWith("Unity") &&
-                                    component.GetType().Name != "Button" &&
-                                    component.GetType().Name != "Image" &&
-                                    component.GetType().Name != "RectTransform")
+                                try
                                 {
-                                    componentNames.Add(component.GetType().Name);
+                                    if (!string.IsNullOrWhiteSpace(text.text) && 
+                                        text.gameObject.activeInHierarchy &&
+                                        !string.IsNullOrEmpty(text.text.Trim()))
+                                    {
+                                        importantTexts.Add(text);
+                                    }
+                                }
+                                catch (Exception)
+                                {
+                                    // Skip if there's an error getting text
                                 }
                             }
                             
-                            if (componentNames.Count > 0)
+                            MelonLogger.Msg($"  Important Text Elements ({importantTexts.Count}):");
+                            LogToBuffer($"  Important Text Elements ({importantTexts.Count}):");
+                            
+                            foreach (var text in importantTexts)
                             {
-                                MelonLogger.Msg($"      Components: {string.Join(", ", componentNames)}");
-                                LogToBuffer($"      Components: {string.Join(", ", componentNames)}");
-                            }
-                        }
-                    }
-                    
-                    // Find all text elements that might be interesting
-                    var texts = canvas.GetComponentsInChildren<Text>(true);
-                    if (texts.Length > 0)
-                    {
-                        // Filter texts to only show ones that might be important (non-empty)
-                        List<Text> importantTexts = new List<Text>();
-                        foreach (var text in texts)
-                        {
-                            if (!string.IsNullOrWhiteSpace(text.text) && 
-                                text.gameObject.activeInHierarchy &&
-                                !string.IsNullOrEmpty(text.text.Trim()))
-                            {
-                                importantTexts.Add(text);
+                                try
+                                {
+                                    string relativePath = GetRelativePath(text.transform, canvas.transform);
+                                    MelonLogger.Msg($"  - {relativePath}: \"{text.text}\"");
+                                    LogToBuffer($"  - {relativePath}: \"{text.text}\"");
+                                }
+                                catch (Exception ex)
+                                {
+                                    MelonLogger.Warning($"Error getting text info: {ex.Message}");
+                                }
                             }
                         }
                         
-                        if (importantTexts.Count > 0)
-                        {
-                            MelonLogger.Msg($"  Important Texts ({importantTexts.Count}):");
-                            LogToBuffer($"  Important Texts ({importantTexts.Count}):");
-                            foreach (var text in importantTexts)
-                            {
-                                string relativePath = GetRelativePath(text.transform, canvas.transform);
-                                MelonLogger.Msg($"  - {relativePath}: \"{text.text}\"");
-                                LogToBuffer($"  - {relativePath}: \"{text.text}\"");
-                            }
-                        }
+                        // Find interesting components directly on the canvas
+                        FindInterestingScripts(canvas.gameObject);
                     }
-                    
-                    // Find any interesting MonoBehaviours
-                    FindInterestingScripts(canvas.gameObject);
                 }
+                
+                SaveToTempFile();
+                
+                // Log a tree view of the hierarchy for easier navigation
+                MelonLogger.Msg("=== UI HIERARCHY ===");
+                foreach (var canvas in canvases)
+                {
+                    if (canvas != null && canvas.gameObject.activeInHierarchy)
+                    {
+                        LogHierarchyToConsole(canvas.gameObject, 0);
+                    }
+                }
+                MelonLogger.Msg("=== END UI HIERARCHY ===");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Error logging UI: {ex.Message}");
             }
         }
-
-        private void FindInterestingScripts(GameObject parentObject)
+        
+        private void LogHierarchyToConsole(GameObject obj, int depth)
         {
-            // Find all MonoBehaviours in the parent object
-            var allScripts = parentObject.GetComponentsInChildren<MonoBehaviour>(true);
-            
-            // Filter to potentially interesting scripts
-            List<MonoBehaviour> interestingScripts = new List<MonoBehaviour>();
-            foreach (var script in allScripts)
+            try
             {
-                string typeName = script.GetType().Name;
-                if (typeName.Contains("Message") || 
-                    typeName.Contains("Phone") || 
-                    typeName.Contains("SMS") || 
-                    typeName.Contains("Contact") || 
-                    typeName.Contains("Chat") ||
-                    typeName.Contains("ATM") ||
-                    typeName.Contains("Bank"))
+                if (obj == null) return;
+                
+                string indent = new string(' ', depth * 2);
+                MelonLogger.Msg($"{indent}└─ {obj.name}");
+                
+                // Get direct children safely without using foreach on transform
+                int childCount = obj.transform.childCount;
+                for (int i = 0; i < childCount; i++)
                 {
-                    interestingScripts.Add(script);
+                    try
+                    {
+                        Transform childTransform = obj.transform.GetChild(i);
+                        if (childTransform != null)
+                        {
+                            LogHierarchyToConsole(childTransform.gameObject, depth + 1);
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Skip problematic children
+                    }
                 }
             }
-            
-            if (interestingScripts.Count > 0)
+            catch (Exception ex)
             {
-                MelonLogger.Msg($"  Interesting Scripts ({interestingScripts.Count}):");
-                LogToBuffer($"  Interesting Scripts ({interestingScripts.Count}):");
-                foreach (var script in interestingScripts)
+                // Just skip this object silently
+            }
+        }
+        
+        private void FindInterestingScripts(GameObject parentObject)
+        {
+            try
+            {
+                var components = parentObject.GetComponents<Component>();
+                bool foundInteresting = false;
+                
+                List<string> interestingTypes = new List<string>();
+                foreach (var component in components)
                 {
-                    MelonLogger.Msg($"  - {script.GetType().Name} on {script.gameObject.name}");
-                    LogToBuffer($"  - {script.GetType().Name} on {script.gameObject.name}");
+                    if (component == null)
+                        continue;
+                        
+                    string typeName = component.GetType().Name;
+                    
+                    // Skip standard Unity components
+                    if (typeName.StartsWith("Unity") || 
+                        typeName == "Canvas" || 
+                        typeName == "CanvasScaler" || 
+                        typeName == "GraphicRaycaster" ||
+                        typeName == "RectTransform" ||
+                        typeName == "CanvasRenderer" ||
+                        typeName == "Text" ||
+                        typeName == "Image" ||
+                        typeName == "Button")
+                        continue;
+                        
+                    interestingTypes.Add(typeName);
+                    foundInteresting = true;
                 }
+                
+                if (foundInteresting)
+                {
+                    string path = GetGameObjectPath(parentObject);
+                    MelonLogger.Msg($"  Interesting Components on {path}: {string.Join(", ", interestingTypes)}");
+                    LogToBuffer($"  Interesting Components on {path}: {string.Join(", ", interestingTypes)}");
+                }
+                
+                // MODIFIED: Safely handle IL2CPP Transform iteration
+                // Don't recursively check children - IL2CPP issues with transform enumeration
+                // This avoids the casting exception
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"Error inspecting {parentObject.name}: {ex.Message}");
             }
         }
         
@@ -245,47 +328,60 @@ namespace UIInspectorMod
         {
             outputBuffer.AppendLine(message);
         }
-
+        
         private void SaveToTempFile()
         {
             try
             {
-                // Get current scene name
-                string sceneName = SceneManager.GetActiveScene().name;
+                // Create a temporary file to save the output
+                string tempPath = Path.Combine(Path.GetTempPath(), "UIInspectorOutput.txt");
+                File.WriteAllText(tempPath, outputBuffer.ToString());
                 
-                // Create a timestamp for the filename
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                MelonLogger.Msg($"UI inspection data saved to: {tempPath}");
                 
-                // Path is relative to the mod directory
-                string modDir = Path.GetDirectoryName(typeof(UIInspectorMod).Assembly.Location);
-                string tempDir = Path.Combine(modDir, "tmp");
-                
-                // Create directory if it doesn't exist
-                if (!Directory.Exists(tempDir))
+                // Try to get a path within the game directory as well
+                try
                 {
-                    Directory.CreateDirectory(tempDir);
+                    string localPath = Path.Combine(MelonEnvironment.GameRootDirectory, "UIInspectorOutput.txt");
+                    File.WriteAllText(localPath, outputBuffer.ToString());
+                    MelonLogger.Msg($"UI inspection data also saved to: {localPath}");
                 }
-                
-                string filePath = Path.Combine(tempDir, $"UIInspection_{sceneName}_{timestamp}.txt");
-                File.WriteAllText(filePath, outputBuffer.ToString());
-                
-                MelonLogger.Msg($"UI Inspection saved to: {filePath}");
+                catch (Exception ex)
+                {
+                    MelonLogger.Warning($"Could not save to game directory: {ex.Message}");
+                }
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"Failed to save UI inspection to file: {ex.Message}");
+                MelonLogger.Error($"Failed to save inspection data: {ex.Message}");
             }
         }
         
         private string GetRelativePath(Transform child, Transform parent)
         {
-            string path = child.name;
+            if (child == parent) return parent.name;
+            
+            StringBuilder path = new StringBuilder(child.name);
             Transform current = child.parent;
             
             while (current != null && current != parent)
             {
-                path = current.name + "/" + path;
+                path.Insert(0, current.name + "/");
                 current = current.parent;
+            }
+            
+            return path.ToString();
+        }
+        
+        private string GetGameObjectPath(GameObject obj)
+        {
+            string path = obj.name;
+            Transform parent = obj.transform.parent;
+            
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
             }
             
             return path;
@@ -293,68 +389,91 @@ namespace UIInspectorMod
         
         public GameObject FindUIElement(string canvasName, string elementPath)
         {
-            var canvases = GameObject.FindObjectsOfType<Canvas>();
+            // Find the canvas
+            Canvas[] canvases = GameObject.FindObjectsOfType<Canvas>();
+            Canvas targetCanvas = null;
+            
             foreach (var canvas in canvases)
             {
-                if (canvas.name == canvasName && canvas.gameObject.activeInHierarchy)
+                if (canvas.name == canvasName)
                 {
-                    Transform current = canvas.transform;
-                    string[] pathParts = elementPath.Split('/');
-                    
-                    foreach (string part in pathParts)
-                    {
-                        bool found = false;
-                        for (int i = 0; i < current.childCount; i++)
-                        {
-                            if (current.GetChild(i).name == part)
-                            {
-                                current = current.GetChild(i);
-                                found = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!found)
-                        {
-                            MelonLogger.Warning($"Could not find UI element: {part} in path {elementPath}");
-                            return null;
-                        }
-                    }
-                    
-                    return current.gameObject;
+                    targetCanvas = canvas;
+                    break;
                 }
             }
             
-            return null;
+            if (targetCanvas == null)
+            {
+                MelonLogger.Warning($"Canvas {canvasName} not found");
+                return null;
+            }
+            
+            // Split the path
+            string[] pathParts = elementPath.Split('/');
+            Transform current = targetCanvas.transform;
+            
+            // Navigate the path
+            for (int i = 0; i < pathParts.Length; i++)
+            {
+                Transform next = current.Find(pathParts[i]);
+                if (next == null)
+                {
+                    MelonLogger.Warning($"Could not find {pathParts[i]} in {current.name}");
+                    return null;
+                }
+                current = next;
+            }
+            
+            return current.gameObject;
         }
-
+        
         private void LoadConfig()
         {
-            string configPath = Path.Combine(MelonEnvironment.ModsDirectory, "UIInspectorMod.json");
+            string configPath = Path.Combine(MelonEnvironment.UserDataDirectory, "UIInspectorMod.cfg");
             
-            // Create default config if it doesn't exist
-            if (!File.Exists(configPath))
+            try
             {
+                if (File.Exists(configPath))
+                {
+                    string json = File.ReadAllText(configPath);
+                    config = JsonSerializer.Deserialize<ModConfig>(json);
+                    MelonLogger.Msg("Config loaded");
+                }
+                else
+                {
+                    config = new ModConfig
+                    {
+                        InspectKey = "H"
+                    };
+                    
+                    SaveConfig(configPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Failed to load config: {ex.Message}");
                 config = new ModConfig
                 {
                     InspectKey = "H"
                 };
-                SaveConfig(configPath);
-            }
-            else
-            {
-                string json = File.ReadAllText(configPath);
-                config = JsonSerializer.Deserialize<ModConfig>(json);
             }
         }
-
+        
         private void SaveConfig(string path)
         {
-            string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(path, json);
+            try
+            {
+                string json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(path, json);
+                MelonLogger.Msg("Config saved");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Failed to save config: {ex.Message}");
+            }
         }
     }
-
+    
     public class ModConfig
     {
         public string InspectKey { get; set; }
